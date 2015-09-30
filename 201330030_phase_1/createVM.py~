@@ -1,0 +1,89 @@
+import libvirt
+import main
+import os
+import sys
+import uuid
+import subprocess
+from uuid import uuid4
+import settings
+settings.init()
+
+def create_xml(hypervisor,vm,uuid,path,ram,cpu,emul_path,emulator,archtype):
+	xml = "<domain type='" + hypervisor + "'><name>" + vm + "</name>				\
+	      <memory>" + ram + "</memory>\
+		<currentMemory>" + ram + "</currentMemory>					\
+	      <uuid>" + uuid + "</uuid> \
+	      <vcpu>" + cpu + "</vcpu>						\
+	      <os>							\
+	        <type arch='" + archtype + "' machine='pc'>hvm</type>		\
+		<boot dev='hd'/>					\
+	      </os>							\
+	      <features>						\
+	        <acpi/>							\
+          	<apic/>							\
+	      	<pae/>							\
+	      </features>						\
+	      <on_poweroff>destroy</on_poweroff>			\
+  	      <on_reboot>restart</on_reboot>				\
+	      <on_crash>restart</on_crash>				\
+	      <devices>							\
+	        <emulator>" + emul_path + "</emulator>	\
+	        <disk type='file' device='disk'>			\
+		<driver name=" + emulator + " type='raw'/>			\
+		<source file='" + path + "'/>		\
+		<target dev='hda' bus='ide'/>				\
+		<address type='drive' controller='0' bus='0' unit='0'/>	\
+		</disk>							\
+	      </devices>						\
+   	      </domain>"
+
+	return xml
+
+def create_vm(specs):
+    name=specs["name"]
+    inst_type=int(specs["itype"])
+    #print name
+    #print inst_type
+    #print settings.machines
+    #print settings.vm_type
+    ram=settings.vm_type['types'][inst_type-1]['ram']
+    ram=ram*1024
+    vcpu=int(settings.vm_type['types'][inst_type-1]['cpu'])
+    count_pm=1
+    user=settings.machines[settings.pmid][0]
+    ip_addr=settings.machines[settings.pmid][1]
+    cpu_avail=int(subprocess.check_output("ssh " + user + "@" + ip_addr + " nproc" ,shell=True))
+    free_mem=(subprocess.check_output("ssh " + user + "@" + ip_addr + " free -m" ,shell=True))
+    free_mem=free_mem.split("\n")
+    free_mem=free_mem[1].split()
+    avail_ram=int(free_space[3])    
+    avail_ram = avail_ram * 1024
+
+    while(cpu_avail < vcpu or avail_ram < ram):
+        x=len(settings.machines)
+        settings.pmid=(settings.pmid+1)%x
+        count_pm=count_pm
+        if(count_pm > x):
+            return {"Error" : "Can't create VM as all the specifications not met" }
+        user=settings.machines[settings.pmid][0]
+        ip_addr=settings.machines[settings.pmid][1]
+        cpu_avail=int(subprocess.check_output("ssh " + user + "@" + ip_addr + " nproc" ,shell=True))
+        free_mem=(subprocess.check_output("ssh " + user + "@" + ip_addr + " free -m" ,shell=True))
+        free_mem=free_mem.split("\n")
+        free_mem=free_mem[1].split()
+        avail_ram=int(free_space[3])    
+        avail_ram = avail_ram * 1024
+    
+    settings.vmid=settings.vmid+1
+    settings.vmid_list([settings.vmid,name,inst_type,settings.pmid])
+    uid=str(uuid4())
+    
+    connect=libvirt.open("remote+ssh://"+user+"@"+ip_addr+"/")
+    s=connect.getCapabilities()
+    emul_path=s.split("emulator>")
+    emul_path=emul_path[1].split("<")[0]
+    emulator=s.split("<domain type=")
+    emulator= emulator[1].split(">")[0]
+    archtype=s.split("<arch>")
+    archtype=archtype[1].split("<")[0]
+
